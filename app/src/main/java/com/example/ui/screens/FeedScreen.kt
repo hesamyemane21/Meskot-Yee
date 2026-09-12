@@ -161,11 +161,15 @@ fun FeedScreen(
         } else {
             items(feedPosts, key = { it.id }) { post ->
                 val comments = viewModel.getComments(post.id)
+                val userTier = viewModel.getUserMembershipTier(post.uid)
                 PostCard(
                     post = post,
                     currentUserId = currentUser?.uid,
                     comments = comments,
                     currentLanguage = currentLanguage,
+                    currentUserTier = userTier,
+                    onBoostClick = { viewModel.openBoostModal(it) },
+                    onUnlockVip = { viewModel.openSubscriptionModal(it) },
                     onAuthorClick = { viewModel.openProfileByUid(it) },
                     onToggleReaction = { pid, type -> viewModel.toggleReaction(pid, type) },
                     onShare = { viewModel.sharePost(it) },

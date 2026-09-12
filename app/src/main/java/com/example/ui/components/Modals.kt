@@ -42,9 +42,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.example.data.MembershipTier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,7 +72,9 @@ import com.example.data.Post
 import com.example.data.User
 import com.example.ui.theme.CrossRed
 import com.example.ui.theme.Gold
+import com.example.ui.theme.GoldBorder
 import com.example.ui.theme.GoldDeep
+import com.example.ui.theme.GoldSurface
 import com.example.ui.theme.Ink
 import com.example.ui.theme.LineBorder
 import com.example.ui.theme.MutedText
@@ -415,7 +420,8 @@ fun PostOptionsMenu(
     onNotInterested: () -> Unit,
     onToggleNotifs: () -> Unit,
     onCopyText: () -> Unit = {},
-    onCopyLink: () -> Unit
+    onCopyLink: () -> Unit,
+    onBoostPost: () -> Unit = {}
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -458,6 +464,11 @@ fun PostOptionsMenu(
                 )
 
                 if (isAuthor) {
+                    MenuOptionItem(
+                        emoji = "🚀",
+                        title = MeskotStrings.get("boostPost", currentLanguage) + if (post.isBoosted) " (Boost Active)" else "",
+                        onClick = { onBoostPost(); onDismiss() }
+                    )
                     MenuOptionItem(
                         emoji = "✏️",
                         title = MeskotStrings.get("editPostAction", currentLanguage),
@@ -530,13 +541,25 @@ private fun MenuOptionItem(
 fun TipModal(
     post: Post,
     currentLanguage: AppLanguage,
+    userStarBalance: Int = 1250,
     onDismiss: () -> Unit,
-    onConfirmTip: (Double) -> Unit
+    onConfirmTip: (Double) -> Unit,
+    onSendStars: (starCount: Int, giftName: String) -> Unit = { _, _ -> }
 ) {
+    var isStarsTab by remember { mutableStateOf(false) }
     var selectedAmount by remember { mutableStateOf(25.0) }
     var customAmountText by remember { mutableStateOf("") }
 
     val presetAmounts = listOf(10.0, 25.0, 50.0, 100.0)
+
+    val virtualGifts = listOf(
+        Triple("☕ Coffee Cheer", 50, "☕"),
+        Triple("👏 Big Applause", 100, "👏"),
+        Triple("🌟 Super Star", 250, "🌟"),
+        Triple("👑 Royal Crown", 500, "👑"),
+        Triple("🦁 Lion of Judah", 1000, "🦁"),
+        Triple("💎 Diamond Trophy", 2500, "💎")
+    )
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -545,46 +568,372 @@ fun TipModal(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Text(
-                    text = "💰 " + MeskotStrings.get("supportCreator", currentLanguage),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Serif,
-                    color = Ink
-                )
+                // Segmented Tab for Cash Tip vs Virtual Stars
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Paper2)
+                        .padding(3.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (!isStarsTab) Color.White else Color.Transparent)
+                            .clickable { isStarsTab = false }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "💰 Chapa Tip (Birr)",
+                            fontSize = 12.sp,
+                            fontWeight = if (!isStarsTab) FontWeight.Bold else FontWeight.Medium,
+                            color = if (!isStarsTab) GoldDeep else MutedText
+                        )
+                    }
 
-                Text(
-                    text = MeskotStrings.get("supportSub", currentLanguage),
-                    fontSize = 12.sp,
-                    color = MutedText,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
-                )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isStarsTab) Color.White else Color.Transparent)
+                            .clickable { isStarsTab = true }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "⭐ Virtual Stars",
+                            fontSize = 12.sp,
+                            fontWeight = if (isStarsTab) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isStarsTab) GoldDeep else MutedText
+                        )
+                    }
+                }
 
-                // Amount Chips
+                Spacer(modifier = Modifier.height(14.dp))
+
+                if (!isStarsTab) {
+                    Text(
+                        text = "💰 " + MeskotStrings.get("supportCreator", currentLanguage),
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Serif,
+                        color = Ink
+                    )
+
+                    Text(
+                        text = MeskotStrings.get("supportSub", currentLanguage),
+                        fontSize = 12.sp,
+                        color = MutedText,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                    )
+
+                    // Amount Chips
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        presetAmounts.forEach { amount ->
+                            val isSelected = selectedAmount == amount && customAmountText.isEmpty()
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSelected) Gold else Paper2)
+                                    .border(1.dp, if (isSelected) GoldDeep else LineBorder, RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        selectedAmount = amount
+                                        customAmountText = ""
+                                    }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${amount.toInt()} ETB",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = if (isSelected) Color.White else Ink
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = customAmountText,
+                        onValueChange = {
+                            customAmountText = it
+                            val parsed = it.toDoubleOrNull()
+                            if (parsed != null && parsed > 0) selectedAmount = parsed
+                        },
+                        label = { Text(MeskotStrings.get("customAmount", currentLanguage)) },
+                        placeholder = { Text("e.g. 150") },
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp),
+                        colors = com.example.ui.theme.meskotTextFieldColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = onDismiss) {
+                            Text(text = MeskotStrings.get("cancel", currentLanguage), color = MutedText)
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Button(
+                            onClick = { onConfirmTip(selectedAmount) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Color.White),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(text = MeskotStrings.get("continueToPay", currentLanguage), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else {
+                    // Virtual Stars & Gifts Tab
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "⭐ Virtual Stars & Gifting",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Serif,
+                            color = Ink
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(GoldSurface)
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "Balance: $userStarBalance ⭐",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GoldDeep
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Send Facebook-like animated gifts to reward the creator! 1 Star = 1.50 ETB.",
+                        fontSize = 11.sp,
+                        color = MutedText,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        virtualGifts.chunked(2).forEach { rowGifts ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                rowGifts.forEach { (giftTitle, starCost, _) ->
+                                    val canAfford = userStarBalance >= starCost
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(if (canAfford) Paper2 else Color(0xFFF1F5F9))
+                                            .border(1.dp, LineBorder, RoundedCornerShape(10.dp))
+                                            .clickable(enabled = canAfford) {
+                                                onSendStars(starCost, giftTitle)
+                                            }
+                                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(text = giftTitle, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Ink)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "$starCost ⭐",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (canAfford) GoldDeep else Color.Gray
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = onDismiss) {
+                            Text(text = MeskotStrings.get("cancel", currentLanguage), color = MutedText)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BoostPostModal(
+    post: Post,
+    currentLanguage: AppLanguage,
+    onDismiss: () -> Unit,
+    onConfirmBoost: (
+        dailyBudgetEtb: Double,
+        durationDays: Int,
+        locations: List<String>,
+        minAge: Int,
+        maxAge: Int,
+        interests: List<String>
+    ) -> Unit
+) {
+    var dailyBudget by remember { mutableStateOf(200.0) }
+    var selectedDuration by remember { mutableStateOf(7) }
+    var selectedLocation by remember { mutableStateOf("Addis Ababa + Hawassa") }
+
+    val durations = listOf(1, 3, 7, 14, 30)
+    val locations = listOf("Addis Ababa + Hawassa", "All Ethiopia", "Global Diaspora (USA/Europe)")
+
+    val totalBudget = dailyBudget * selectedDuration
+    val estimatedReach = (dailyBudget * 120).toInt()
+    val multiplier = String.format(java.util.Locale.US, "%.1f", 1.0 + (dailyBudget / 50.0).coerceAtMost(5.0))
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState())
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "🚀 ", fontSize = 22.sp)
+                    Column {
+                        Text(
+                            text = MeskotStrings.get("boostPost", currentLanguage),
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Serif,
+                            color = Ink
+                        )
+                        Text(
+                            text = "Promote into high-priority algorithmic feed",
+                            fontSize = 11.sp,
+                            color = MutedText
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Post Preview Snippet
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Paper2)
+                        .padding(10.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = "Post by ${post.authorName}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = Ink
+                        )
+                        Text(
+                            text = post.text.ifBlank { "[Media Post]" },
+                            fontSize = 12.sp,
+                            color = MutedText,
+                            maxLines = 2
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Budget Slider
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    presetAmounts.forEach { amount ->
-                        val isSelected = selectedAmount == amount && customAmountText.isEmpty()
+                    Text(text = "Daily Budget:", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                    Text(text = "${dailyBudget.toInt()} ETB/day", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = GoldDeep)
+                }
+
+                Slider(
+                    value = dailyBudget.toFloat(),
+                    onValueChange = { dailyBudget = it.toDouble() },
+                    valueRange = 50f..1500f,
+                    steps = 28,
+                    colors = SliderDefaults.colors(thumbColor = GoldDeep, activeTrackColor = GoldDeep)
+                )
+
+                // Duration Selector
+                Text(text = "Duration:", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    durations.forEach { days ->
+                        val isSel = selectedDuration == days
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isSelected) Gold else Paper2)
-                                .border(1.dp, if (isSelected) GoldDeep else LineBorder, RoundedCornerShape(10.dp))
-                                .clickable {
-                                    selectedAmount = amount
-                                    customAmountText = ""
-                                }
-                                .padding(vertical = 12.dp),
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSel) GoldDeep else Paper2)
+                                .clickable { selectedDuration = days }
+                                .padding(vertical = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "${amount.toInt()} ETB",
+                                text = "${days}d",
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = if (isSelected) Color.White else Ink
+                                color = if (isSel) Color.White else Ink
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Targeting Location
+                Text(text = "Target Audience Geography:", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                Spacer(modifier = Modifier.height(6.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    locations.forEach { loc ->
+                        val isSel = selectedLocation == loc
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSel) GoldSurface else Paper2)
+                                .border(1.dp, if (isSel) GoldDeep else LineBorder, RoundedCornerShape(8.dp))
+                                .clickable { selectedLocation = loc }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = (if (isSel) "✓ " else "") + loc,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSel) GoldDeep else Ink
                             )
                         }
                     }
@@ -592,22 +941,22 @@ fun TipModal(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                OutlinedTextField(
-                    value = customAmountText,
-                    onValueChange = {
-                        customAmountText = it
-                        val parsed = it.toDoubleOrNull()
-                        if (parsed != null && parsed > 0) selectedAmount = parsed
-                    },
-                    label = { Text(MeskotStrings.get("customAmount", currentLanguage)) },
-                    placeholder = { Text("e.g. 150") },
-                    textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 15.sp),
-                    colors = com.example.ui.theme.meskotTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
+                // Forecast Box
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFFFEF3C7))
+                        .padding(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(text = "⚡ Estimated Reach: ~$estimatedReach people/day", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF92400E))
+                        Text(text = "📈 Algorithm Weight: ${multiplier}x Feed Priority", fontSize = 11.sp, color = Color(0xFF92400E))
+                        Text(text = "💳 Total Spend: ${totalBudget.toInt()} ETB ($selectedDuration days)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF92400E))
+                    }
+                }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -620,11 +969,270 @@ fun TipModal(
                     Spacer(modifier = Modifier.width(8.dp))
 
                     Button(
-                        onClick = { onConfirmTip(selectedAmount) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Color.White),
+                        onClick = {
+                            onConfirmBoost(
+                                dailyBudget,
+                                selectedDuration,
+                                listOf(selectedLocation),
+                                18,
+                                55,
+                                listOf("General", "Culture", "Tech")
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = GoldDeep, contentColor = Color.White),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text(text = MeskotStrings.get("continueToPay", currentLanguage), fontWeight = FontWeight.Bold)
+                        Text(text = "Boost Post Now 🚀", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SubscriptionModal(
+    creator: User,
+    currentLanguage: AppLanguage,
+    currentUser: User? = null,
+    onDismiss: () -> Unit,
+    onSubscribe: (tier: MembershipTier) -> Unit
+) {
+    var selectedTier by remember { mutableStateOf(MembershipTier.SILVER) }
+    val currentTierCode = currentUser?.vipMemberships?.get(creator.uid) ?: "FREE"
+    val currentTier = MembershipTier.fromCode(currentTierCode)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState())
+            ) {
+                // Header with Creator
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AsyncImage(
+                        model = creator.photoUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "${creator.displayName}'s VIP Fan Club",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Serif,
+                            color = Ink
+                        )
+                        Text(
+                            text = "Monthly Recurring Tiered Subscription",
+                            fontSize = 11.sp,
+                            color = MutedText
+                        )
+                    }
+                }
+
+                if (currentTier != MembershipTier.FREE) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(GoldSurface)
+                            .padding(8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "⭐ Current Active Plan: ${currentTier.badge} ${currentTier.label}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GoldDeep
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Tier Selection Cards
+                val tiers = listOf(MembershipTier.BRONZE, MembershipTier.SILVER, MembershipTier.GOLD)
+                tiers.forEach { tier ->
+                    val isSel = selectedTier == tier
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = if (isSel) GoldSurface else Paper2),
+                        border = androidx.compose.foundation.BorderStroke(if (isSel) 2.dp else 1.dp, if (isSel) GoldDeep else LineBorder),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clickable { selectedTier = tier }
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${tier.badge} ${tier.label}",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = Ink
+                                )
+                                Text(
+                                    text = "${tier.monthlyPriceEtb.toInt()} ETB / mo",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = GoldDeep
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = tier.perksSummary, fontSize = 11.sp, color = MutedText, lineHeight = 15.sp)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text(text = MeskotStrings.get("cancel", currentLanguage), color = MutedText)
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Button(
+                        onClick = { onSubscribe(selectedTier) },
+                        colors = ButtonDefaults.buttonColors(containerColor = GoldDeep, contentColor = Color.White),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(text = "Subscribe (${selectedTier.monthlyPriceEtb.toInt()} ETB)", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CreatorPayoutModal(
+    netBalanceEtb: Double,
+    currentLanguage: AppLanguage,
+    onDismiss: () -> Unit,
+    onRequestPayout: (method: String, amount: Double) -> Unit
+) {
+    var amountText by remember { mutableStateOf(netBalanceEtb.toInt().toString()) }
+    var selectedMethod by remember { mutableStateOf("Telebirr SuperApp") }
+
+    val methods = listOf(
+        "Telebirr SuperApp",
+        "CBE Birr (Commercial Bank of Ethiopia)",
+        "Chapa Direct Settlement",
+        "Stripe Connect (Global Diaspora)"
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState())
+            ) {
+                Text(
+                    text = "💸 Request Creator Earnings Payout",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Serif,
+                    color = Ink
+                )
+
+                Text(
+                    text = "Net Available Balance: ${String.format(java.util.Locale.US, "%,.2f", netBalanceEtb)} ETB",
+                    fontSize = 12.sp,
+                    color = GoldDeep,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+                )
+
+                Text(text = "Disbursement Channel:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                Spacer(modifier = Modifier.height(4.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    methods.forEach { method ->
+                        val isSel = selectedMethod == method
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSel) GoldSurface else Paper2)
+                                .border(1.dp, if (isSel) GoldDeep else LineBorder, RoundedCornerShape(8.dp))
+                                .clickable { selectedMethod = method }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = (if (isSel) "✓ " else "") + method,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSel) GoldDeep else Ink
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = amountText,
+                    onValueChange = { amountText = it },
+                    label = { Text("Payout Amount (ETB)") },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp),
+                    colors = com.example.ui.theme.meskotTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Text(
+                    text = "Automated threshold: Min 100 ETB. Standard clearing time is 5-15 mins.",
+                    fontSize = 10.sp,
+                    color = MutedText,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 14.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text(text = MeskotStrings.get("cancel", currentLanguage), color = MutedText)
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    val parsedAmount = amountText.toDoubleOrNull() ?: 0.0
+                    Button(
+                        onClick = {
+                            if (parsedAmount > 0 && parsedAmount <= netBalanceEtb) {
+                                onRequestPayout(selectedMethod, parsedAmount)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = GoldDeep, contentColor = Color.White),
+                        shape = RoundedCornerShape(10.dp),
+                        enabled = parsedAmount > 0 && parsedAmount <= netBalanceEtb
+                    ) {
+                        Text(text = "Confirm Payout", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -637,13 +1245,35 @@ fun EditProfileDialog(
     currentUser: User,
     currentLanguage: AppLanguage,
     onDismiss: () -> Unit,
-    onSave: (name: String, bio: String, photoUrl: String, gender: String, birthDate: String) -> Unit
+    onSave: (
+        name: String,
+        bio: String,
+        photoUrl: String,
+        gender: String,
+        birthDate: String,
+        coverPhotoUrl: String,
+        profession: String,
+        location: String,
+        hometown: String,
+        workplace: String,
+        workRole: String,
+        education: String,
+        educationClass: String
+    ) -> Unit
 ) {
     var name by remember { mutableStateOf(currentUser.displayName) }
     var bio by remember { mutableStateOf(currentUser.bio) }
     var photoUrl by remember { mutableStateOf(currentUser.photoUrl) }
+    var coverPhotoUrl by remember { mutableStateOf(currentUser.coverPhotoUrl) }
     var gender by remember { mutableStateOf(currentUser.gender) }
     var birthDate by remember { mutableStateOf(currentUser.birthDate) }
+    var profession by remember { mutableStateOf(currentUser.profession) }
+    var location by remember { mutableStateOf(currentUser.location) }
+    var hometown by remember { mutableStateOf(currentUser.hometown) }
+    var workplace by remember { mutableStateOf(currentUser.workplace) }
+    var workRole by remember { mutableStateOf(currentUser.workRole) }
+    var education by remember { mutableStateOf(currentUser.education) }
+    var educationClass by remember { mutableStateOf(currentUser.educationClass) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -686,7 +1316,91 @@ fun EditProfileDialog(
                     colors = com.example.ui.theme.meskotTextFieldColors(),
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
-                    minLines = 3
+                    minLines = 2
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = profession,
+                    onValueChange = { profession = it },
+                    label = { Text("Profession / Category (e.g. Public figure)") },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp),
+                    colors = com.example.ui.theme.meskotTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = location,
+                    onValueChange = { location = it },
+                    label = { Text("Current City (e.g. Calgary, Alberta)") },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp),
+                    colors = com.example.ui.theme.meskotTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = hometown,
+                    onValueChange = { hometown = it },
+                    label = { Text("Hometown (e.g. Calgary, Alberta)") },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp),
+                    colors = com.example.ui.theme.meskotTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = workplace,
+                    onValueChange = { workplace = it },
+                    label = { Text("Workplace (e.g. Adigrat university _Engineering Sciences)") },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp),
+                    colors = com.example.ui.theme.meskotTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = workRole,
+                    onValueChange = { workRole = it },
+                    label = { Text("Work Position / Role (e.g. Civil Engineering)") },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp),
+                    colors = com.example.ui.theme.meskotTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = education,
+                    onValueChange = { education = it },
+                    label = { Text("College / University (e.g. Adigrat University)") },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp),
+                    colors = com.example.ui.theme.meskotTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = educationClass,
+                    onValueChange = { educationClass = it },
+                    label = { Text("Graduation Class (e.g. Class of 2018)") },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp),
+                    colors = com.example.ui.theme.meskotTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -695,6 +1409,18 @@ fun EditProfileDialog(
                     value = photoUrl,
                     onValueChange = { photoUrl = it },
                     label = { Text(MeskotStrings.get("photo", currentLanguage) + " URL") },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp),
+                    colors = com.example.ui.theme.meskotTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = coverPhotoUrl,
+                    onValueChange = { coverPhotoUrl = it },
+                    label = { Text("Cover Banner URL") },
                     textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp),
                     colors = com.example.ui.theme.meskotTextFieldColors(),
                     modifier = Modifier.fillMaxWidth(),
@@ -746,7 +1472,7 @@ fun EditProfileDialog(
                     value = birthDate,
                     onValueChange = { birthDate = it },
                     label = { Text(MeskotStrings.get("birthday", currentLanguage)) },
-                    placeholder = { Text("e.g. Jan 1, 1998") },
+                    placeholder = { Text("e.g. May 11, 1994") },
                     textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp),
                     colors = com.example.ui.theme.meskotTextFieldColors(),
                     modifier = Modifier.fillMaxWidth(),
@@ -764,7 +1490,13 @@ fun EditProfileDialog(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
-                        onClick = { onSave(name, bio, photoUrl, gender, birthDate) },
+                        onClick = {
+                            onSave(
+                                name, bio, photoUrl, gender, birthDate,
+                                coverPhotoUrl, profession, location, hometown,
+                                workplace, workRole, education, educationClass
+                            )
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Color.White),
                         shape = RoundedCornerShape(10.dp)
                     ) {

@@ -25,19 +25,23 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.example.data.MeskotRepository
 import com.example.ui.MeskotViewModel
 import com.example.ui.ScreenTab
+import com.example.ui.components.BoostPostModal
 import com.example.ui.components.CallOverlay
-import com.example.ui.components.IncomingCallOverlay
 import com.example.ui.components.ComposerDialog
 import com.example.ui.components.EditProfileDialog
 import com.example.ui.components.IconNavBar
+import com.example.ui.components.IncomingCallOverlay
 import com.example.ui.components.PostOptionsMenu
+import com.example.ui.components.SubscriptionModal
 import com.example.ui.components.TipModal
 import com.example.ui.components.TopNavBar
 import com.example.util.CallAudioManager
 import com.example.ui.screens.AdminScreen
+import com.example.ui.screens.AdsManagerScreen
 import com.example.ui.screens.AlbumDetailScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.ChatScreen
+import com.example.ui.screens.CreatorDashboardScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.FeedScreen
 import com.example.ui.screens.FriendsScreen
@@ -116,6 +120,8 @@ fun MeskotApp(viewModel: MeskotViewModel) {
     val incomingCall by viewModel.incomingCall.collectAsState()
     val incomingMessageAlert by viewModel.incomingMessageAlert.collectAsState()
     val tippingPost by viewModel.tippingPost.collectAsState()
+    val boostingPost by viewModel.boostingPost.collectAsState()
+    val subscribingToCreator by viewModel.subscribingToCreator.collectAsState()
     val postMenuTarget by viewModel.postMenuTarget.collectAsState()
     val isEditProfileOpen by viewModel.isEditProfileOpen.collectAsState()
 
@@ -158,6 +164,7 @@ fun MeskotApp(viewModel: MeskotViewModel) {
             ScreenTab.CHAT -> viewModel.navigateTo(ScreenTab.MESSAGES)
             ScreenTab.GROUP_DETAIL -> viewModel.navigateTo(ScreenTab.GROUPS)
             ScreenTab.ALBUM_DETAIL -> viewModel.navigateTo(ScreenTab.PHOTOS)
+            ScreenTab.ADS_MANAGER, ScreenTab.CREATOR_STUDIO -> viewModel.navigateTo(ScreenTab.MENU)
             ScreenTab.PROFILE, ScreenTab.SAVED, ScreenTab.ADMIN, ScreenTab.DASHBOARD, ScreenTab.MENU -> viewModel.navigateTo(ScreenTab.FEED)
             else -> viewModel.navigateTo(ScreenTab.FEED)
         }
@@ -173,27 +180,29 @@ fun MeskotApp(viewModel: MeskotViewModel) {
             modifier = Modifier.fillMaxSize(),
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
-                Column {
-                    TopNavBar(
-                        currentUser = currentUser,
-                        currentLanguage = currentLanguage,
-                        onToggleLanguage = { viewModel.toggleLanguage() },
-                        onOpenComposer = { viewModel.openComposer() },
-                        onOpenSearch = { viewModel.navigateTo(ScreenTab.FRIENDS) },
-                        onOpenMenu = { viewModel.navigateTo(ScreenTab.MENU) },
-                        onProfileClick = { currentUser?.let { viewModel.openProfile(it) } },
-                        onLogout = { viewModel.logout() }
-                    )
+                if (currentTab != ScreenTab.PROFILE && currentTab != ScreenTab.CHAT && currentTab != ScreenTab.ADS_MANAGER && currentTab != ScreenTab.CREATOR_STUDIO) {
+                    Column {
+                        TopNavBar(
+                            currentUser = currentUser,
+                            currentLanguage = currentLanguage,
+                            onToggleLanguage = { viewModel.toggleLanguage() },
+                            onOpenComposer = { viewModel.openComposer() },
+                            onOpenSearch = { viewModel.navigateTo(ScreenTab.FRIENDS) },
+                            onOpenMenu = { viewModel.navigateTo(ScreenTab.MENU) },
+                            onProfileClick = { currentUser?.let { viewModel.openProfile(it) } },
+                            onLogout = { viewModel.logout() }
+                        )
 
-                    // Web App's exact Icon Nav Bar with Badges
-                    IconNavBar(
-                        currentTab = currentTab,
-                        unreadReqCount = incomingReqs.size,
-                        unreadMsgCount = unreadMsgCount,
-                        unreadNotifCount = unreadNotifsCount,
-                        isAdmin = currentUser?.isAdmin == true,
-                        onTabSelected = { viewModel.navigateTo(it) }
-                    )
+                        // Web App's exact Icon Nav Bar with Badges
+                        IconNavBar(
+                            currentTab = currentTab,
+                            unreadReqCount = incomingReqs.size,
+                            unreadMsgCount = unreadMsgCount,
+                            unreadNotifCount = unreadNotifsCount,
+                            isAdmin = currentUser?.isAdmin == true,
+                            onTabSelected = { viewModel.navigateTo(it) }
+                        )
+                    }
                 }
             }
         ) { innerPadding ->
@@ -335,7 +344,8 @@ fun MeskotApp(viewModel: MeskotViewModel) {
                                 currentUser = currentUser,
                                 userPosts = userPosts,
                                 friendUids = friendsSet,
-                                currentLanguage = currentLanguage
+                                currentLanguage = currentLanguage,
+                                allUsers = users
                             )
                         } else {
                             viewModel.navigateTo(ScreenTab.FEED)
@@ -348,6 +358,20 @@ fun MeskotApp(viewModel: MeskotViewModel) {
                             currentUser = currentUser,
                             allUsers = users,
                             currentLanguage = currentLanguage
+                        )
+                    }
+
+                    ScreenTab.ADS_MANAGER -> {
+                        AdsManagerScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateTo(ScreenTab.MENU) }
+                        )
+                    }
+
+                    ScreenTab.CREATOR_STUDIO -> {
+                        CreatorDashboardScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.navigateTo(ScreenTab.MENU) }
                         )
                     }
                 }
@@ -372,6 +396,7 @@ fun MeskotApp(viewModel: MeskotViewModel) {
                         isSaved = savedPostIds.contains(post.id),
                         currentLanguage = currentLanguage,
                         onDismiss = { viewModel.closePostMenu() },
+                        onBoostPost = { viewModel.openBoostModal(post) },
                         onSaveToggle = { viewModel.toggleSavePost(post.id) },
                         onShare = { viewModel.sharePost(post.id) },
                         onEdit = { viewModel.startEditingPost(post) },
@@ -397,7 +422,32 @@ fun MeskotApp(viewModel: MeskotViewModel) {
                         post = post,
                         currentLanguage = currentLanguage,
                         onDismiss = { viewModel.closeTipModal() },
-                        onConfirmTip = { amount -> viewModel.confirmTip(amount) }
+                        onConfirmTip = { amount -> viewModel.confirmTip(amount) },
+                        onSendStars = { count, gift -> viewModel.sendStars(post.id, count, gift) }
+                    )
+                }
+
+                boostingPost?.let { post ->
+                    BoostPostModal(
+                        post = post,
+                        currentLanguage = currentLanguage,
+                        onDismiss = { viewModel.closeBoostModal() },
+                        onConfirmBoost = { dailyBudget, duration, locations, minAge, maxAge, interests ->
+                            viewModel.confirmBoost(post.id, dailyBudget, duration, locations, minAge, maxAge, interests)
+                        }
+                    )
+                }
+
+                subscribingToCreator?.let { creator ->
+                    SubscriptionModal(
+                        creator = creator,
+                        currentLanguage = currentLanguage,
+                        currentUser = currentUser,
+                        onDismiss = { viewModel.closeSubscriptionModal() },
+                        onSubscribe = { tier ->
+                            viewModel.subscribeToTier(creator.uid, tier)
+                            viewModel.closeSubscriptionModal()
+                        }
                     )
                 }
 
@@ -406,8 +456,22 @@ fun MeskotApp(viewModel: MeskotViewModel) {
                         currentUser = currentUser!!,
                         currentLanguage = currentLanguage,
                         onDismiss = { viewModel.closeEditProfile() },
-                        onSave = { name, bio, photoUrl, gender, birthDate ->
-                            viewModel.saveProfile(name, bio, photoUrl, gender, birthDate)
+                        onSave = { name, bio, photoUrl, gender, birthDate, coverPhotoUrl, profession, location, hometown, workplace, workRole, education, educationClass ->
+                            viewModel.saveProfile(
+                                name = name,
+                                bio = bio,
+                                photoUrl = photoUrl,
+                                gender = gender,
+                                birthDate = birthDate,
+                                coverPhotoUrl = coverPhotoUrl,
+                                profession = profession,
+                                location = location,
+                                hometown = hometown,
+                                workplace = workplace,
+                                workRole = workRole,
+                                education = education,
+                                educationClass = educationClass
+                            )
                         }
                     )
                 }

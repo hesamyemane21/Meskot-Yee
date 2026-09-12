@@ -12,6 +12,10 @@ import com.example.data.MeskotRepository
 import com.example.data.NotificationItem
 import com.example.data.Post
 import com.example.data.User
+import com.example.data.AdCampaign
+import com.example.data.BoostCampaign
+import com.example.data.CreatorPayoutRecord
+import com.example.data.MembershipTier
 import com.example.util.CallAudioManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -20,6 +24,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -37,7 +42,9 @@ enum class ScreenTab {
     PROFILE,
     CHAT,
     GROUP_DETAIL,
-    ALBUM_DETAIL
+    ALBUM_DETAIL,
+    ADS_MANAGER,
+    CREATOR_STUDIO
 }
 
 data class ActiveCall(
@@ -68,6 +75,11 @@ class MeskotViewModel(private val repository: MeskotRepository) : ViewModel() {
     val conversations: StateFlow<Map<String, List<ChatMessage>>> = repository.conversations
     val savedPostIds: StateFlow<Set<String>> = repository.savedPostIds
     val incomingCall: StateFlow<CallSession?> = repository.incomingCall
+
+    // Monetization & Ads
+    val adCampaigns: StateFlow<List<AdCampaign>> = repository.adCampaigns
+    val boostCampaigns: StateFlow<List<BoostCampaign>> = repository.boostCampaigns
+    val payoutHistory: StateFlow<List<CreatorPayoutRecord>> = repository.payoutHistory
 
     // Current screen navigation
     private val _currentTab = MutableStateFlow(ScreenTab.FEED)
@@ -108,6 +120,24 @@ class MeskotViewModel(private val repository: MeskotRepository) : ViewModel() {
     private val _isEditProfileOpen = MutableStateFlow(false)
     val isEditProfileOpen: StateFlow<Boolean> = _isEditProfileOpen.asStateFlow()
 
+    // Monetization & Boosting Modals
+    private val _boostModalPost = MutableStateFlow<Post?>(null)
+    val boostModalPost: StateFlow<Post?> = _boostModalPost.asStateFlow()
+    val boostingPost: StateFlow<Post?> = _boostModalPost.asStateFlow()
+
+    private val _subscriptionModalCreator = MutableStateFlow<User?>(null)
+    val subscriptionModalCreator: StateFlow<User?> = _subscriptionModalCreator.asStateFlow()
+    val subscribingToCreator: StateFlow<User?> = _subscriptionModalCreator.asStateFlow()
+
+    val creatorGrossEarnings: StateFlow<Double> = repository.currentUser.map { it?.creatorGrossEarnings ?: 0.0 }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    val creatorNetBalance: StateFlow<Double> = repository.currentUser.map { it?.creatorNetBalance ?: 0.0 }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    private val _isCreateCampaignOpen = MutableStateFlow(false)
+    val isCreateCampaignOpen: StateFlow<Boolean> = _isCreateCampaignOpen.asStateFlow()
+
+    private val _isPayoutModalOpen = MutableStateFlow(false)
+    val isPayoutModalOpen: StateFlow<Boolean> = _isPayoutModalOpen.asStateFlow()
+
     // Toast message for user feedback
     private val _userMessage = MutableStateFlow<String?>(null)
     val userMessage: StateFlow<String?> = _userMessage.asStateFlow()
@@ -120,7 +150,7 @@ class MeskotViewModel(private val repository: MeskotRepository) : ViewModel() {
         _userMessage.value = msg
     }
 
-    // Filtered Feed posts
+    // Filtered Feed posts with Algorithmic Boost Weighting
     val feedPosts: StateFlow<List<Post>> = combine(
         repository.posts,
         repository.hiddenPostIds,
@@ -135,7 +165,10 @@ class MeskotViewModel(private val repository: MeskotRepository) : ViewModel() {
                 "onlyme" -> post.uid == user?.uid
                 else -> true
             }
-        }
+        }.sortedWith(
+            compareByDescending<Post> { if (it.isBoosted) 1 else 0 }
+                .thenByDescending { if (it.isBoosted) it.createdAt + (it.boostMultiplier * 3600000).toLong() else it.createdAt }
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val unreadNotifsCount: StateFlow<Int> = combine(repository.notifications) { notifs ->
@@ -300,6 +333,110 @@ class MeskotViewModel(private val repository: MeskotRepository) : ViewModel() {
         repository.sendTip(post.id, amount)
         closeTipModal()
         showMessage("Tip of ${amount.toInt()} ETB sent via Chapa!")
+    }
+
+    fun sendStars(postId: String, count: Int, giftName: String) {
+        val currUser = currentUser.value
+        if (currUser != null && currUser.starBalance < count) {
+            showMessage("⚠️ Insufficient Star balance (${currUser.starBalance} ⭐). Please top up.")
+            return
+        }
+        repository.sendStars(postId, count, giftName)
+        closeTipModal()
+        showMessage("⭐ Sent $count Stars ($giftName) to creator!")
+    }
+
+    // Content Boosting (Post Promotion)
+    fun openBoostModal(post: Post) {
+        _boostModalPost.value = post
+        closePostMenu()
+    }
+
+    fun closeBoostModal() {
+        _boostModalPost.value = null
+    }
+
+    fun confirmBoost(
+        postId: String,
+        dailyBudgetEtb: Double,
+        durationDays: Int,
+        targetLocations: List<String>,
+        minAge: Int,
+        maxAge: Int,
+        interests: List<String>
+    ) {
+        repository.boostPost(postId, dailyBudgetEtb, durationDays, targetLocations, minAge, maxAge, interests)
+        closeBoostModal()
+        showMessage("🚀 Post promoted! Priority algorithm reach activated.")
+    }
+
+    // Fan Subscriptions & VIP Memberships
+    fun getUserMembershipTier(creatorUid: String): MembershipTier = repository.getUserMembershipTier(creatorUid)
+
+    fun openSubscriptionModal(creator: User) {
+        _subscriptionModalCreator.value = creator
+    }
+
+    fun openSubscriptionModal(creatorUid: String) {
+        val creator = users.value.find { it.uid == creatorUid }
+        if (creator != null) {
+            _subscriptionModalCreator.value = creator
+        }
+    }
+
+    fun closeSubscriptionModal() {
+        _subscriptionModalCreator.value = null
+    }
+
+    fun subscribeToTier(creatorUid: String, tier: MembershipTier) = subscribeToCreator(creatorUid, tier)
+
+    fun subscribeToCreator(creatorUid: String, tier: MembershipTier) {
+        repository.subscribeToCreator(creatorUid, tier)
+        closeSubscriptionModal()
+        showMessage("🎉 Congratulations! You unlocked ${tier.label} membership.")
+    }
+
+    // Ads Manager & Campaigns
+    fun openCreateCampaignModal() {
+        _isCreateCampaignOpen.value = true
+    }
+
+    fun closeCreateCampaignModal() {
+        _isCreateCampaignOpen.value = false
+    }
+
+    fun createAdCampaign(
+        name: String,
+        objective: String,
+        dailyBudgetEtb: Double,
+        headline: String,
+        primaryText: String,
+        mediaUrl: String,
+        ctaText: String,
+        destinationUrl: String
+    ) {
+        repository.createAdCampaign(name, objective, dailyBudgetEtb, headline, primaryText, mediaUrl, ctaText, destinationUrl)
+        closeCreateCampaignModal()
+        showMessage("📢 Campaign \"$name\" launched into the auction pool!")
+    }
+
+    fun toggleAdCampaignStatus(campaignId: String) {
+        repository.toggleAdCampaignStatus(campaignId)
+    }
+
+    // Creator Payouts
+    fun openPayoutModal() {
+        _isPayoutModalOpen.value = true
+    }
+
+    fun closePayoutModal() {
+        _isPayoutModalOpen.value = false
+    }
+
+    fun requestPayout(method: String, amountEtb: Double) {
+        repository.requestPayout(method, amountEtb)
+        closePayoutModal()
+        showMessage("✅ Payout request of ${amountEtb.toInt()} ETB submitted via $method!")
     }
 
     // Friends
@@ -516,8 +653,36 @@ class MeskotViewModel(private val repository: MeskotRepository) : ViewModel() {
         _isEditProfileOpen.value = false
     }
 
-    fun saveProfile(name: String, bio: String, photoUrl: String, gender: String = "", birthDate: String = "") {
-        repository.updateProfile(name, bio, photoUrl, gender, birthDate)
+    fun saveProfile(
+        name: String,
+        bio: String,
+        photoUrl: String,
+        gender: String = "",
+        birthDate: String = "",
+        coverPhotoUrl: String = "",
+        profession: String = "",
+        location: String = "",
+        hometown: String = "",
+        workplace: String = "",
+        workRole: String = "",
+        education: String = "",
+        educationClass: String = ""
+    ) {
+        repository.updateProfile(
+            name = name,
+            bio = bio,
+            photoUrl = photoUrl,
+            gender = gender,
+            birthDate = birthDate,
+            coverPhotoUrl = coverPhotoUrl,
+            profession = profession,
+            location = location,
+            hometown = hometown,
+            workplace = workplace,
+            workRole = workRole,
+            education = education,
+            educationClass = educationClass
+        )
         closeEditProfile()
         showMessage("Profile updated")
     }

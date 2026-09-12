@@ -33,6 +33,8 @@ import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -64,6 +66,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.AppLanguage
 import com.example.data.Comment
+import com.example.data.MembershipTier
 import com.example.data.MeskotStrings
 import com.example.data.Post
 import com.example.data.ReactionType
@@ -72,6 +75,7 @@ import com.example.ui.theme.CardBg
 import com.example.ui.theme.CrossRed
 import com.example.ui.theme.Gold
 import com.example.ui.theme.GoldDeep
+import com.example.ui.theme.GoldSurface
 import com.example.ui.theme.Ink
 import com.example.ui.theme.LineBorder
 import com.example.ui.theme.MutedText
@@ -93,6 +97,9 @@ fun PostCard(
     onAddComment: (String, String, String?) -> Unit,
     onToggleCommentLike: (String, String) -> Unit,
     onDeleteComment: (String, String) -> Unit,
+    currentUserTier: MembershipTier = MembershipTier.FREE,
+    onBoostClick: (Post) -> Unit = {},
+    onUnlockVip: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isCommentsOpen by remember { mutableStateOf(false) }
@@ -102,6 +109,10 @@ fun PostCard(
     var replyingToCommentId by remember { mutableStateOf<String?>(null) }
 
     val myReaction = currentUserId?.let { post.reactions[it] }
+
+    val minTier = MembershipTier.fromCode(post.minTierRequired)
+    val isAuthor = post.uid == currentUserId
+    val isGated = minTier != MembershipTier.FREE && !isAuthor && currentUserTier.ordinal < minTier.ordinal
 
     Card(
         modifier = modifier
@@ -139,12 +150,46 @@ fun PostCard(
                     UserAvatar(photoUrl = post.authorPhoto, name = post.authorName, size = 44)
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
-                        Text(
-                            text = post.authorName,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Ink
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = post.authorName,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Ink
+                            )
+                            if (post.isBoosted) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(GoldDeep)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "🚀 " + MeskotStrings.get("boostedBadge", currentLanguage),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                            if (minTier != MembershipTier.FREE) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(GoldSurface)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "${minTier.badge} ${minTier.label}",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = GoldDeep
+                                    )
+                                }
+                            }
+                        }
                         Text(
                             text = MeskotStrings.timeAgo(post.createdAt, currentLanguage) + if (post.editedAt != null) " · edited" else "",
                             fontSize = 12.sp,
@@ -176,77 +221,123 @@ fun PostCard(
                 )
             }
 
-            // Post Body Text
-            if (post.text.isNotBlank()) {
-                val bgBrush = PostGradientList.getOrNull(post.bgColorIndex)
-                if (bgBrush != null) {
-                    // Colored gradient card style
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 4.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(bgBrush)
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        SelectionContainer {
+            // Post Content (Gated VIP check or normal body/media)
+            if (isGated) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Paper2)
+                        .border(1.dp, Gold, RoundedCornerShape(12.dp))
+                        .padding(20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(text = "🔒", fontSize = 34.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "${minTier.badge} ${minTier.label} Exclusive Post",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Ink
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "This creator published exclusive media and content for their ${minTier.label} fan club members. Join to unlock immediate access.",
+                            fontSize = 12.sp,
+                            color = MutedText,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            lineHeight = 16.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { onUnlockVip(post.uid) },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = GoldDeep)
+                        ) {
                             Text(
-                                text = post.text,
-                                color = Color.White,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = FontFamily.Serif,
-                                lineHeight = 28.sp
-                            )
-                        }
-                    }
-                } else {
-                    // Standard text with "See more" if long
-                    val isLong = post.text.length > 180
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        SelectionContainer {
-                            Text(
-                                text = post.text,
-                                fontSize = 15.sp,
-                                color = Ink,
-                                lineHeight = 22.sp,
-                                maxLines = if (isExpandedText || !isLong) Int.MAX_VALUE else 3,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        if (isLong) {
-                            Text(
-                                text = if (isExpandedText) MeskotStrings.get("seeLess", currentLanguage) else MeskotStrings.get("seeMore", currentLanguage),
-                                color = GoldDeep,
+                                text = "👑 Unlock Content with Fan Club",
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                modifier = Modifier
-                                    .clickable { isExpandedText = !isExpandedText }
-                                    .padding(top = 4.dp)
+                                color = Color.White,
+                                fontSize = 12.sp
                             )
                         }
                     }
                 }
-            }
+            } else {
+                // Post Body Text
+                if (post.text.isNotBlank()) {
+                    val bgBrush = PostGradientList.getOrNull(post.bgColorIndex)
+                    if (bgBrush != null) {
+                        // Colored gradient card style
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 4.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(bgBrush)
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    text = post.text,
+                                    color = Color.White,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.Serif,
+                                    lineHeight = 28.sp
+                                )
+                            }
+                        }
+                    } else {
+                        // Standard text with "See more" if long
+                        val isLong = post.text.length > 180
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                            SelectionContainer {
+                                Text(
+                                    text = post.text,
+                                    fontSize = 15.sp,
+                                    color = Ink,
+                                    lineHeight = 22.sp,
+                                    maxLines = if (isExpandedText || !isLong) Int.MAX_VALUE else 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (isLong) {
+                                Text(
+                                    text = if (isExpandedText) MeskotStrings.get("seeLess", currentLanguage) else MeskotStrings.get("seeMore", currentLanguage),
+                                    color = GoldDeep,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier
+                                        .clickable { isExpandedText = !isExpandedText }
+                                        .padding(top = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
 
-            // Media Images Grid
-            if (post.mediaUrls.isNotEmpty()) {
-                MediaGrid(urls = post.mediaUrls)
-            }
+                // Media Images Grid
+                if (post.mediaUrls.isNotEmpty()) {
+                    MediaGrid(urls = post.mediaUrls)
+                }
 
-            // Embedded Shared Post Preview
-            if (post.sharedPost != null) {
-                SharedPostBox(
-                    shared = post.sharedPost,
-                    currentLanguage = currentLanguage,
-                    onAuthorClick = onAuthorClick
-                )
+                // Embedded Shared Post Preview
+                if (post.sharedPost != null) {
+                    SharedPostBox(
+                        shared = post.sharedPost,
+                        currentLanguage = currentLanguage,
+                        onAuthorClick = onAuthorClick
+                    )
+                }
             }
 
             // Reaction & Tip Counts Summary Line
             val totalReactions = post.reactions.size
-            if (totalReactions > 0 || post.tipTotal > 0) {
+            if (totalReactions > 0 || post.tipTotal > 0 || post.starsTotal > 0) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -285,13 +376,26 @@ fun PostCard(
                         Spacer(modifier = Modifier.width(1.dp))
                     }
 
-                    if (post.tipTotal > 0) {
-                        Text(
-                            text = "💰 ${post.tipTotal.toInt()} ${MeskotStrings.get("etbReceived", currentLanguage)}",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = GoldDeep
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (post.starsTotal > 0) {
+                            Text(
+                                text = "⭐ ${post.starsTotal} ${MeskotStrings.get("starsReceived", currentLanguage)}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GoldDeep
+                            )
+                            if (post.tipTotal > 0) {
+                                Text(text = " · ", fontSize = 12.sp, color = MutedText)
+                            }
+                        }
+                        if (post.tipTotal > 0) {
+                            Text(
+                                text = "💰 ${post.tipTotal.toInt()} ${MeskotStrings.get("etbReceived", currentLanguage)}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GoldDeep
+                            )
+                        }
                     }
                 }
             }
@@ -411,16 +515,27 @@ fun PostCard(
                     )
                 }
 
-                // Tip Creator Button (Support with Chapa)
+                // Tip Creator Button (Support with Chapa or Virtual Stars)
                 if (post.uid != currentUserId) {
                     TextButton(onClick = { onTipClick(post) }) {
-                        Text(text = "💰", fontSize = 14.sp)
+                        Text(text = "⭐", fontSize = 14.sp)
                         Spacer(modifier = Modifier.width(2.dp))
                         Text(
                             text = MeskotStrings.get("support", currentLanguage),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = GoldDeep
+                        )
+                    }
+                } else {
+                    TextButton(onClick = { onBoostClick(post) }) {
+                        Text(text = "🚀", fontSize = 13.sp)
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(
+                            text = if (post.isBoosted) "Boosted" else MeskotStrings.get("boostPost", currentLanguage),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (post.isBoosted) Color(0xFF059669) else GoldDeep
                         )
                     }
                 }

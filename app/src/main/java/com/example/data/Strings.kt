@@ -214,7 +214,24 @@ object MeskotStrings {
         "calling" to "Calling…",
         "callConnected" to "Connected",
         "endCall" to "End call",
-        "quickDemoUsers" to "Quick switch demo user:"
+        "quickDemoUsers" to "Quick switch demo user:",
+        "vipMemberships" to "Fan Subscriptions & VIP",
+        "vipExclusive" to "VIP Exclusive Content",
+        "unlockWithVip" to "Unlock with Fan Subscription",
+        "subscribeNow" to "Subscribe Now",
+        "boostPost" to "Boost Post",
+        "boostedBadge" to "Sponsored · Boosted",
+        "boostDailyBudget" to "Daily Budget",
+        "boostDuration" to "Duration",
+        "estimatedReach" to "Estimated Reach",
+        "adsManager" to "Ads Manager & Campaigns",
+        "createCampaign" to "Create Campaign",
+        "campaigns" to "Campaigns",
+        "adSets" to "Ad Sets",
+        "ads" to "Ads",
+        "starsTip" to "Send Stars & Gifts",
+        "payoutThreshold" to "Minimum Payout Threshold",
+        "requestPayout" to "Request Payout"
     )
 
     private val am = mapOf(
@@ -425,7 +442,24 @@ object MeskotStrings {
         "calling" to "በመደወል ላይ…",
         "callConnected" to "ተገናኝቷል",
         "endCall" to "ጥሪ አቋርጥ",
-        "quickDemoUsers" to "የሙከራ ተጠቃሚዎችን ይምረጡ:"
+        "quickDemoUsers" to "የሙከራ ተጠቃሚዎችን ይምረጡ:",
+        "vipMemberships" to "የደጋፊዎች ምዝገባ እና ቪአይፒ",
+        "vipExclusive" to "ልዩ የቪአይፒ ይዘት",
+        "unlockWithVip" to "በቪአይፒ ምዝገባ ይክፈቱ",
+        "subscribeNow" to "አሁን ይመዝገቡ",
+        "boostPost" to "ልጥፉን አሳድግ (Boost)",
+        "boostedBadge" to "ስፖንሰር የተደረገ",
+        "boostDailyBudget" to "የቀን በጀት",
+        "boostDuration" to "የቆይታ ጊዜ",
+        "estimatedReach" to "የሚገመተው ተደራሽነት",
+        "adsManager" to "የማስታወቂያ አስተዳዳሪ እና ዘመቻዎች",
+        "createCampaign" to "ዘመቻ ይፍጠሩ",
+        "campaigns" to "ዘመቻዎች",
+        "adSets" to "የማስታወቂያ ስብስቦች",
+        "ads" to "ማስታወቂያዎች",
+        "starsTip" to "ኮከቦችን እና ስጦታዎችን ይላኩ",
+        "payoutThreshold" to "ዝቅተኛ የክፍያ ገደብ",
+        "requestPayout" to "ክፍያ ይጠይቁ"
     )
 
     fun get(key: String, lang: AppLanguage): String {

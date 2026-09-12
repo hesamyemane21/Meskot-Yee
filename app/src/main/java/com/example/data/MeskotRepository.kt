@@ -19,8 +19,8 @@ class MeskotRepository(private val context: Context) {
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
 
-    // Users list (populated directly from Firebase Firestore)
-    private val _users = MutableStateFlow<List<User>>(emptyList())
+    // Users list (populated directly from Firebase Firestore, seeded with default friends)
+    private val _users = MutableStateFlow<List<User>>(createInitialUsers())
     val users: StateFlow<List<User>> = _users.asStateFlow()
 
     // Posts list (populated directly from Firebase Firestore)
@@ -70,6 +70,18 @@ class MeskotRepository(private val context: Context) {
     // Hidden post IDs
     private val _hiddenPostIds = MutableStateFlow<Set<String>>(emptySet())
     val hiddenPostIds: StateFlow<Set<String>> = _hiddenPostIds.asStateFlow()
+
+    // Monetization: Ad Campaigns
+    private val _adCampaigns = MutableStateFlow<List<AdCampaign>>(createInitialAdCampaigns())
+    val adCampaigns: StateFlow<List<AdCampaign>> = _adCampaigns.asStateFlow()
+
+    // Content Boosting Campaigns
+    private val _boostCampaigns = MutableStateFlow<List<BoostCampaign>>(emptyList())
+    val boostCampaigns: StateFlow<List<BoostCampaign>> = _boostCampaigns.asStateFlow()
+
+    // Creator Payout Records
+    private val _payoutHistory = MutableStateFlow<List<CreatorPayoutRecord>>(createInitialPayoutHistory())
+    val payoutHistory: StateFlow<List<CreatorPayoutRecord>> = _payoutHistory.asStateFlow()
 
     private var notifListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
     private var incomingCallsListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
@@ -325,7 +337,15 @@ class MeskotRepository(private val context: Context) {
         bio: String,
         photoUrl: String,
         gender: String = "",
-        birthDate: String = ""
+        birthDate: String = "",
+        coverPhotoUrl: String = "",
+        profession: String = "",
+        location: String = "",
+        hometown: String = "",
+        workplace: String = "",
+        workRole: String = "",
+        education: String = "",
+        educationClass: String = ""
     ) {
         val curr = _currentUser.value ?: return
         val updated = curr.copy(
@@ -333,7 +353,15 @@ class MeskotRepository(private val context: Context) {
             bio = bio,
             photoUrl = photoUrl.ifBlank { curr.photoUrl },
             gender = if (gender.isNotBlank()) gender else curr.gender,
-            birthDate = if (birthDate.isNotBlank()) birthDate else curr.birthDate
+            birthDate = if (birthDate.isNotBlank()) birthDate else curr.birthDate,
+            coverPhotoUrl = if (coverPhotoUrl.isNotBlank()) coverPhotoUrl else curr.coverPhotoUrl,
+            profession = if (profession.isNotBlank()) profession else curr.profession,
+            location = if (location.isNotBlank()) location else curr.location,
+            hometown = if (hometown.isNotBlank()) hometown else curr.hometown,
+            workplace = if (workplace.isNotBlank()) workplace else curr.workplace,
+            workRole = if (workRole.isNotBlank()) workRole else curr.workRole,
+            education = if (education.isNotBlank()) education else curr.education,
+            educationClass = if (educationClass.isNotBlank()) educationClass else curr.educationClass
         )
         _currentUser.value = updated
         _users.value = _users.value.map { if (it.uid == curr.uid) updated else it }
@@ -467,6 +495,185 @@ class MeskotRepository(private val context: Context) {
                 targetId = postId,
                 amount = amount
             )
+        }
+    }
+
+    // MONETIZATION: FAN SUBSCRIPTIONS
+    fun subscribeToCreator(creatorUid: String, tier: MembershipTier) {
+        val user = _currentUser.value ?: return
+        val updatedVip = user.vipMemberships.toMutableMap()
+        updatedVip[creatorUid] = tier.code
+        val updatedUser = user.copy(vipMemberships = updatedVip)
+        _currentUser.value = updatedUser
+
+        // Notify creator
+        addNotification(
+            fromUid = user.uid,
+            fromName = user.displayName,
+            fromPhoto = user.photoUrl,
+            type = "vip_subscription",
+            targetId = creatorUid,
+            customText = "${user.displayName} joined your fan club as a ${tier.label}! 🌟"
+        )
+
+        // Update creator earnings
+        _users.value = _users.value.map { u ->
+            if (u.uid == creatorUid) {
+                val netAdd = tier.monthlyPriceEtb * 0.80
+                u.copy(
+                    creatorGrossEarnings = u.creatorGrossEarnings + tier.monthlyPriceEtb,
+                    creatorNetBalance = u.creatorNetBalance + netAdd
+                )
+            } else u
+        }
+    }
+
+    fun getUserMembershipTier(creatorUid: String): MembershipTier {
+        val tierCode = _currentUser.value?.vipMemberships?.get(creatorUid) ?: "FREE"
+        return MembershipTier.fromCode(tierCode)
+    }
+
+    // MONETIZATION: VIRTUAL STARS & GIFTS
+    fun sendStars(postId: String, starCount: Int, giftName: String) {
+        val user = _currentUser.value ?: return
+        if (user.starBalance < starCount) return
+        val updatedUser = user.copy(starBalance = user.starBalance - starCount)
+        _currentUser.value = updatedUser
+
+        val post = _posts.value.find { it.id == postId } ?: return
+        val starValueEtb = starCount * 1.5
+        val newStarsTotal = post.starsTotal + starCount
+        val newTipTotal = post.tipTotal + starValueEtb
+
+        _posts.value = _posts.value.map {
+            if (it.id == postId) it.copy(starsTotal = newStarsTotal, tipTotal = newTipTotal) else it
+        }
+
+        if (post.uid != user.uid) {
+            addNotification(
+                fromUid = user.uid,
+                fromName = user.displayName,
+                fromPhoto = user.photoUrl,
+                type = "stars_gift",
+                targetId = postId,
+                amount = starValueEtb,
+                customText = "${user.displayName} sent you $starCount Stars ($giftName)! ⭐"
+            )
+        }
+    }
+
+    // CONTENT BOOSTING (POST PROMOTION)
+    fun boostPost(
+        postId: String,
+        dailyBudgetEtb: Double,
+        durationDays: Int,
+        targetLocations: List<String>,
+        minAge: Int,
+        maxAge: Int,
+        interests: List<String>
+    ) {
+        val user = _currentUser.value ?: return
+        val multiplier = 1.0 + (dailyBudgetEtb / 50.0).coerceAtMost(5.0)
+        val totalBudget = dailyBudgetEtb * durationDays
+        val estimatedReach = (dailyBudgetEtb * 120).toInt()
+
+        val campaign = BoostCampaign(
+            id = "boost_" + System.currentTimeMillis(),
+            postId = postId,
+            creatorUid = user.uid,
+            dailyBudgetEtb = dailyBudgetEtb,
+            durationDays = durationDays,
+            targetLocations = targetLocations,
+            minAge = minAge,
+            maxAge = maxAge,
+            interests = interests,
+            totalBudgetEtb = totalBudget,
+            estimatedReachPerDay = estimatedReach,
+            boostMultiplier = multiplier
+        )
+        _boostCampaigns.value = listOf(campaign) + _boostCampaigns.value
+
+        _posts.value = _posts.value.map { post ->
+            if (post.id == postId) {
+                post.copy(
+                    isBoosted = true,
+                    boostMultiplier = multiplier,
+                    boostDailyBudget = dailyBudgetEtb,
+                    boostDaysRemaining = durationDays
+                )
+            } else post
+        }
+    }
+
+    // CREATOR PAYOUTS
+    fun requestPayout(method: String, amountEtb: Double) {
+        val user = _currentUser.value ?: return
+        if (user.creatorNetBalance < amountEtb || amountEtb <= 0) return
+
+        val platformFee = amountEtb * 0.02
+        val netDisbursed = amountEtb - platformFee
+
+        val record = CreatorPayoutRecord(
+            id = "payout_" + System.currentTimeMillis(),
+            creatorUid = user.uid,
+            amountEtb = amountEtb,
+            platformFeeEtb = platformFee,
+            netAmountEtb = netDisbursed,
+            payoutMethod = method,
+            status = "COMPLETED",
+            transactionRef = "TXN-" + UUID.randomUUID().toString().take(8).uppercase()
+        )
+
+        _payoutHistory.value = listOf(record) + _payoutHistory.value
+        val updatedUser = user.copy(creatorNetBalance = user.creatorNetBalance - amountEtb)
+        _currentUser.value = updatedUser
+    }
+
+    // ADS MANAGER: CAMPAIGNS
+    fun createAdCampaign(
+        name: String,
+        objective: String,
+        dailyBudgetEtb: Double,
+        headline: String,
+        primaryText: String,
+        mediaUrl: String,
+        ctaText: String,
+        destinationUrl: String
+    ) {
+        val user = _currentUser.value
+        val advertiserName = user?.displayName ?: "Meskot Partner"
+        val advertiserAvatar = user?.photoUrl ?: ""
+
+        val newCampaign = AdCampaign(
+            id = "camp_" + System.currentTimeMillis(),
+            name = name,
+            objective = objective,
+            status = "ACTIVE",
+            dailyBudgetEtb = dailyBudgetEtb,
+            totalSpentEtb = 0.0,
+            impressions = 0,
+            clicks = 0,
+            conversions = 0,
+            ctr = 0.0,
+            avgCpcEtb = (1.20 + Math.random() * 0.80).let { String.format(java.util.Locale.US, "%.2f", it).toDouble() },
+            cpmEtb = 25.0,
+            headline = headline,
+            primaryText = primaryText,
+            mediaUrl = mediaUrl,
+            ctaText = ctaText,
+            destinationUrl = destinationUrl,
+            advertiserName = advertiserName,
+            advertiserAvatar = advertiserAvatar
+        )
+        _adCampaigns.value = listOf(newCampaign) + _adCampaigns.value
+    }
+
+    fun toggleAdCampaignStatus(campaignId: String) {
+        _adCampaigns.value = _adCampaigns.value.map {
+            if (it.id == campaignId) {
+                val newStatus = if (it.status == "ACTIVE") "PAUSED" else "ACTIVE"
+                it.copy(status = newStatus)
+            } else it
         }
     }
 
@@ -955,6 +1162,75 @@ class MeskotRepository(private val context: Context) {
     }
 
     // INITIAL DATA GENERATORS
+    private fun createInitialUsers(): List<User> {
+        return listOf(
+            User(
+                uid = "user_boniface",
+                displayName = "Boniface Njuguna",
+                photoUrl = "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&auto=format&fit=crop&q=80",
+                coverPhotoUrl = "https://images.unsplash.com/photo-1547471080-7cc2caa01a7e?w=800&auto=format&fit=crop&q=80",
+                bio = "Civil Engineer & Project Coordinator",
+                profession = "Civil Engineer",
+                location = "Calgary, Alberta",
+                hometown = "Nairobi, Kenya",
+                workplace = "Adigrat university _Engineering Sciences",
+                workRole = "Civil Engineering",
+                education = "Adigrat University",
+                educationClass = "Class of 2018",
+                followersCount = 7400,
+                followingCount = 2100
+            ),
+            User(
+                uid = "user_nic",
+                displayName = "Ñiç Mwikà",
+                photoUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80",
+                coverPhotoUrl = "https://images.unsplash.com/photo-1509785307050-d4066910ec1e?w=800&auto=format&fit=crop&q=80",
+                bio = "Designer & Digital Creator",
+                profession = "Digital Creator",
+                location = "Calgary, Alberta",
+                hometown = "Mombasa, Kenya",
+                workplace = "Creative Media Hub",
+                workRole = "UI/UX Lead",
+                education = "University of Calgary",
+                educationClass = "Class of 2019",
+                followersCount = 5800,
+                followingCount = 1950
+            ),
+            User(
+                uid = "user_edson",
+                displayName = "Edson Hamisi",
+                photoUrl = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80",
+                coverPhotoUrl = "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80",
+                bio = "Software Engineer & Open Source Builder",
+                profession = "Software Developer",
+                location = "Calgary, Alberta",
+                hometown = "Dar es Salaam, Tanzania",
+                workplace = "Tech Horizons Ltd",
+                workRole = "Senior Architect",
+                education = "Adigrat University",
+                educationClass = "Class of 2017",
+                followersCount = 6300,
+                followingCount = 2400
+            ),
+            User(
+                uid = "user_ken",
+                displayName = "Ken Mutharimi",
+                photoUrl = "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80",
+                coverPhotoUrl = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&auto=format&fit=crop&q=80",
+                bio = "Structural Consultant & Technology Enthusiast",
+                profession = "Structural Consultant",
+                location = "Calgary, Alberta",
+                hometown = "Nairobi, Kenya",
+                workplace = "Apex Structural Designs",
+                workRole = "Senior Associate",
+                education = "Adigrat University",
+                educationClass = "Class of 2018",
+                followersCount = 9200,
+                followingCount = 3800
+            )
+        )
+    }
+
     private fun createInitialPosts(): List<Post> = emptyList()
 
     private fun createInitialComments(): Map<String, List<Comment>> = emptyMap()
@@ -1007,4 +1283,111 @@ class MeskotRepository(private val context: Context) {
     private fun createInitialChatMessages(): Map<String, List<ChatMessage>> = emptyMap()
 
     private fun createInitialNotifications(): List<NotificationItem> = emptyList()
+
+    private fun createInitialAdCampaigns(): List<AdCampaign> {
+        return listOf(
+            AdCampaign(
+                id = "camp_coffee_01",
+                name = "Habesha Coffee Roasters - Winter Single Origin",
+                objective = "TRAFFIC",
+                status = "ACTIVE",
+                dailyBudgetEtb = 500.0,
+                totalSpentEtb = 3420.0,
+                impressions = 48290,
+                clicks = 2140,
+                conversions = 312,
+                ctr = 4.43,
+                avgCpcEtb = 1.60,
+                cpmEtb = 70.8,
+                headline = "Single-Origin Yirgacheffe & Sidama Beans ☕",
+                primaryText = "Directly sourced from smallholder family farms in Sidama and Yirgacheffe. Freshly micro-roasted in Addis Ababa. Experience floral jasmine & citrus notes.",
+                mediaUrl = "https://images.unsplash.com/photo-1509785307050-d4066910ec1e?w=800&auto=format&fit=crop&q=80",
+                ctaText = "Shop Now",
+                destinationUrl = "https://habeshacoffee.example.com",
+                advertiserName = "Habesha Coffee Roasters",
+                advertiserAvatar = "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=150"
+            ),
+            AdCampaign(
+                id = "camp_tech_02",
+                name = "Addis Tech Summit 2026 - Early Bird Passes",
+                objective = "CONVERSIONS",
+                status = "ACTIVE",
+                dailyBudgetEtb = 1200.0,
+                totalSpentEtb = 8750.0,
+                impressions = 94800,
+                clicks = 4890,
+                conversions = 680,
+                ctr = 5.16,
+                avgCpcEtb = 1.79,
+                cpmEtb = 92.3,
+                headline = "Early Bird Tickets Now Open! 🚀 Addis Tech Summit",
+                primaryText = "Join 3,000+ engineers, founders, and venture capitalists at Millennium Hall. 40+ speakers from Silicon Valley, London, and Nairobi.",
+                mediaUrl = "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800&auto=format&fit=crop&q=80",
+                ctaText = "Register Now",
+                destinationUrl = "https://addistechsummit.et",
+                advertiserName = "Addis Tech Network",
+                advertiserAvatar = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150"
+            ),
+            AdCampaign(
+                id = "camp_leather_03",
+                name = "Sheger Artisan Leather Goods",
+                objective = "AWARENESS",
+                status = "PAUSED",
+                dailyBudgetEtb = 400.0,
+                totalSpentEtb = 2100.0,
+                impressions = 31500,
+                clicks = 980,
+                conversions = 95,
+                ctr = 3.11,
+                avgCpcEtb = 2.14,
+                cpmEtb = 66.7,
+                headline = "Handcrafted Ethiopian Full-Grain Leather Bags 🎒",
+                primaryText = "Centuries of Ethiopian leather tanning craft combined with sleek modern functional aesthetics. Lifetime warranty on craftsmanship.",
+                mediaUrl = "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=800&auto=format&fit=crop&q=80",
+                ctaText = "Learn More",
+                destinationUrl = "https://shegerleather.et",
+                advertiserName = "Sheger Leather Crafts",
+                advertiserAvatar = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150"
+            )
+        )
+    }
+
+    private fun createInitialPayoutHistory(): List<CreatorPayoutRecord> {
+        val now = System.currentTimeMillis()
+        return listOf(
+            CreatorPayoutRecord(
+                id = "pay_01",
+                creatorUid = "meskot_creator",
+                amountEtb = 4800.0,
+                platformFeeEtb = 96.0,
+                netAmountEtb = 4704.0,
+                payoutMethod = "CBE Birr (Commercial Bank of Ethiopia)",
+                status = "COMPLETED",
+                transactionRef = "CBE-TX-98421098",
+                timestamp = now - 86400000L * 4
+            ),
+            CreatorPayoutRecord(
+                id = "pay_02",
+                creatorUid = "meskot_creator",
+                amountEtb = 3200.0,
+                platformFeeEtb = 64.0,
+                netAmountEtb = 3136.0,
+                payoutMethod = "Telebirr SuperApp",
+                status = "COMPLETED",
+                transactionRef = "TB-DISB-77218392",
+                timestamp = now - 86400000L * 12
+            ),
+            CreatorPayoutRecord(
+                id = "pay_03",
+                creatorUid = "meskot_creator",
+                amountEtb = 1500.0,
+                platformFeeEtb = 30.0,
+                netAmountEtb = 1470.0,
+                payoutMethod = "Chapa Direct Settlement",
+                status = "COMPLETED",
+                transactionRef = "CHP-REF-34891277",
+                timestamp = now - 86400000L * 25
+            )
+        )
+    }
 }

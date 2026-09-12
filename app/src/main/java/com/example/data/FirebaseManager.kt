@@ -665,28 +665,48 @@ object FirebaseManager {
         "email" to u.email,
         "bio" to u.bio,
         "photoUrl" to u.photoUrl,
+        "coverPhotoUrl" to u.coverPhotoUrl,
         "isAdmin" to u.isAdmin,
         "isSuspended" to u.isSuspended,
         "lastSeen" to u.lastSeen,
         "createdAt" to u.createdAt,
         "gender" to u.gender,
         "birthDate" to u.birthDate,
-        "phoneNumber" to u.phoneNumber
+        "phoneNumber" to u.phoneNumber,
+        "followersCount" to u.followersCount,
+        "followingCount" to u.followingCount,
+        "profession" to u.profession,
+        "location" to u.location,
+        "hometown" to u.hometown,
+        "workplace" to u.workplace,
+        "workRole" to u.workRole,
+        "education" to u.education,
+        "educationClass" to u.educationClass
     )
 
     private fun parseUser(uid: String, d: Map<String, Any?>): User = User(
         uid = uid,
         displayName = d["displayName"] as? String ?: "User",
         email = d["email"] as? String ?: "",
-        bio = d["bio"] as? String ?: "",
+        bio = d["bio"] as? String ?: "Engineer is a problem solver",
         photoUrl = d["photoUrl"] as? String ?: "",
+        coverPhotoUrl = d["coverPhotoUrl"] as? String ?: "",
         isAdmin = d["isAdmin"] as? Boolean ?: false,
         isSuspended = d["isSuspended"] as? Boolean ?: false,
         lastSeen = (d["lastSeen"] as? Number)?.toLong() ?: System.currentTimeMillis(),
         createdAt = (d["createdAt"] as? Number)?.toLong() ?: System.currentTimeMillis(),
         gender = d["gender"] as? String ?: "",
-        birthDate = d["birthDate"] as? String ?: "",
-        phoneNumber = d["phoneNumber"] as? String ?: ""
+        birthDate = d["birthDate"] as? String ?: "May 11, 1994",
+        phoneNumber = d["phoneNumber"] as? String ?: "",
+        followersCount = (d["followersCount"] as? Number)?.toInt() ?: 8500,
+        followingCount = (d["followingCount"] as? Number)?.toInt() ?: 3700,
+        profession = d["profession"] as? String ?: "Public figure",
+        location = d["location"] as? String ?: "Calgary, Alberta",
+        hometown = d["hometown"] as? String ?: "Calgary, Alberta",
+        workplace = d["workplace"] as? String ?: "Adigrat university _Engineering Sciences",
+        workRole = d["workRole"] as? String ?: "Civil Engineering",
+        education = d["education"] as? String ?: "Adigrat University",
+        educationClass = d["educationClass"] as? String ?: "Class of 2018"
     )
 
     private fun chatMessageToMap(m: ChatMessage): Map<String, Any?> = mapOf(
